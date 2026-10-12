@@ -1,0 +1,61 @@
+log_level: INFO
+
+login:
+  enabled: true
+  url: "https://v8.chaoxing.com/"     # 登录页地址
+  wait_seconds: 15                    # 等待用户输入的最大秒数
+  poll_interval: 0.5                  # 轮询输入框的间隔
+  redirect_timeout: 20                # 等待登录跳转超时
+
+  is_login: false
+
+  username: "13286390594"
+  password: "hhh123456"
+
+  # 登录页元素选择器（可按版本调整）
+  selectors:
+    phone: "id:uunnmm"                    # 账号输入框 id
+    pwd: "id:pwd"                        # 密码输入框 id
+    login_btn: "id:login"             # 登录按钮 id
+    success_selector: "css:#showPrompt > a"   # 登录成功后点击跳转进入学习通的 
+
+api:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8765
+  log_level: "warning"
+  token: ""                # 留空则不校验；填了就要求 X-API-Token 头
+
+screencast:
+  enabled: true
+  quality: 70          # 1-100，越高越清晰越占带宽
+  every_nth_frame: 2   # 1=每帧，2=隔一帧，降低带宽
+
+course:
+  name: '创新创业' # 为空则跳过自动选课；填课程名做模糊匹配
+  index: 0 # course_name 为空时按序号选（0 起）
+  recognition_mode: 1 # 识别章节模式秒数
+
+browser:
+  headless: false                # 调试时 false，看得到浏览器
+  window_size: 'max'             # 浏览器窗口大小，max 或 [宽, 高]，留空则默认 1280x900
+  driver_path: "D:\\Qoom\\Chrome\\chromedriver.exe"                # 留空则用 webdriver-manager 自动下载
+  user_data_dir: ""              # 留空则用 data/chrome_profile
+  page_load_timeout: 30
+  implicit_wait: 0
+
+engine:
+  mode: "video"                  # 目前只支持 video
+  courses: []
+  interval: 2.0
+
+video:
+  playback_rate: 2             # 倍速
+  mute: 'true'                 # 是否静音
+  skip: 0.999                 # 跳过前 99% 的内容（如果可跳过）
+  finish_ratio: 0.95         # 播放到此比例视为完成
+  wait_after_finish: 2       # 播完后停留秒数
+
+docment:
+  wait_after_finish: 2       # 完成后停留秒数
+

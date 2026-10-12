@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>浏览器画面</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #frame {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        user-select: none;
+        cursor: crosshair;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        color: #aaa;
+        font-family: sans-serif;
+        font-size: 14px;
+        pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      #loading.hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <img id="frame" src="" alt="screen" />
+    <div id="loading">连接中...</div>
+
+    <script>
+      let ws = null;
+      let lastId = 0;
+      let lastFrameTs = Date.now();
+      let hasFirstFrame = false;
+
+      function connect() {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        ws = new WebSocket(`${proto}://${location.host}/api/screencast`);
+
+        ws.onopen = () => {
+          document.getElementById("loading").textContent = "等待画面...";
+          // ★ 每次连上都重置，允许接收任何帧（包括缓存帧）
+          lastId = 0;
+          lastFrameTs = Date.now();
+          document.getElementById("loading").textContent = "等待画面...";
+          document.getElementById("loading").classList.remove("hidden");
+
+          // ★ 主动向后端请求刷新重绘
+          ws.send(JSON.stringify({ type: "refresh" }));
+        };
+
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "frame") {
+            if (msg.id <= lastId) return;
+            lastId = msg.id;
+
+            const img = document.getElementById("frame");
+            img.src = "data:image/jpeg;base64," + msg.data;
+            img.dataset.realWidth = msg.width || img.naturalWidth;
+            img.dataset.realHeight = msg.height || img.naturalHeight;
+
+            lastFrameTs = Date.now();
+            if (!hasFirstFrame) {
+              hasFirstFrame = true;
+              document.getElementById("loading").classList.add("hidden");
+            }
+          }
+        };
+
+        ws.onclose = () => {
+          document.getElementById("loading").textContent = "已断开，重连中...";
+          document.getElementById("loading").classList.remove("hidden");
+          setTimeout(connect, 3000);
+        };
+
+        ws.onerror = () => {
+          document.getElementById("loading").textContent = "连接错误";
+          document.getElementById("loading").classList.remove("hidden");
+        };
+      }
+
+      // ---- 坐标映射 ----
+      function toRemoteCoord(ev) {
+        const img = document.getElementById("frame");
+        const rect = img.getBoundingClientRect();
+
+        // ★ 取真实分辨率，全部兜底
+        let realW = parseInt(img.dataset.realWidth, 10);
+        let realH = parseInt(img.dataset.realHeight, 10);
+        if (!realW || realW <= 0) realW = img.naturalWidth || 1280;
+        if (!realH || realH <= 0) realH = img.naturalHeight || 900;
+
+        // ★ 容器尺寸也兜底
+        const boxW = rect.width || img.clientWidth;
+        const boxH = rect.height || img.clientHeight;
+        if (!boxW || !boxH) return { x: 0, y: 0 };
+
+        // object-fit: contain 的实际绘制区域
+        const imgAspect = realW / realH;
+        const boxAspect = boxW / boxH;
+        let drawW, drawH, offsetX, offsetY;
+        if (imgAspect > boxAspect) {
+          drawW = boxW;
+          drawH = boxW / imgAspect;
+          offsetX = 0;
+          offsetY = (boxH - drawH) / 2;
+        } else {
+          drawH = boxH;
+          drawW = boxH * imgAspect;
+          offsetX = (boxW - drawW) / 2;
+          offsetY = 0;
+        }
+
+        let x = ((ev.clientX - rect.left - offsetX) / drawW) * realW;
+        let y = ((ev.clientY - rect.top - offsetY) / drawH) * realH;
+
+        // ★ 最终兜底：任何非数字都返回 0
+        if (!isFinite(x)) x = 0;
+        if (!isFinite(y)) y = 0;
+
+        return {
+          x: Math.max(0, Math.round(x)),
+          y: Math.max(0, Math.round(y)),
+        };
+      }
+
+      const img = document.getElementById("frame");
+
+      img.addEventListener("click", (ev) => {
+        if (!ws || ws.readyState !== 1) return;
+        const { x, y } = toRemoteCoord(ev);
+        ws.send(JSON.stringify({ type: "mouse", x, y, event: "click" }));
+      });
+
+      img.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        if (!ws || ws.readyState !== 1) return;
+        const { x, y } = toRemoteCoord(ev);
+        ws.send(
+          JSON.stringify({
+            type: "mouse",
+            x,
+            y,
+            event: "click",
+            button: "right",
+          }),
+        );
+      });
+
+      img.addEventListener("dblclick", (ev) => {
+        if (!ws || ws.readyState !== 1) return;
+        const { x, y } = toRemoteCoord(ev);
+        ws.send(JSON.stringify({ type: "mouse", x, y, event: "click" }));
+        ws.send(JSON.stringify({ type: "mouse", x, y, event: "click" }));
+      });
+
+      img.addEventListener(
+        "wheel",
+        (ev) => {
+          ev.preventDefault();
+          if (!ws || ws.readyState !== 1) return;
+          const { x, y } = toRemoteCoord(ev);
+          ws.send(JSON.stringify({ type: "scroll", x, y, deltaY: ev.deltaY }));
+        },
+        { passive: false },
+      );
+
+      // ★ 拖动状态
+      let dragging = false;
+      let lastCoord = { x: 0, y: 0 };
+
+      function sendMouse(type, x, y, button = "left", buttons = 0) {
+        if (!ws || ws.readyState !== 1) return;
+        ws.send(
+          JSON.stringify({ type: "mouse", event: type, x, y, button, buttons }),
+        );
+      }
+
+      // ---- 按下 ----
+      img.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        if (ev.button !== 0) return; // 只处理左键
+        dragging = true;
+        const { x, y } = toRemoteCoord(ev);
+        lastCoord = { x, y };
+        sendMouse("down", x, y, "left", 1); // buttons=1 表示左键按下
+        img.style.cursor = "grabbing";
+      });
+
+      // ---- 移动 ----
+      img.addEventListener("mousemove", (ev) => {
+        const { x, y } = toRemoteCoord(ev);
+        lastCoord = { x, y };
+        if (dragging) {
+          sendMouse("move", x, y, "left", 1); // 拖动中 buttons=1
+        } else {
+          sendMouse("move", x, y, "none", 0); // 纯移动
+        }
+      });
+
+      // ---- 松开 ----
+      img.addEventListener("mouseup", (ev) => {
+        if (!dragging) return;
+        dragging = false;
+        const { x, y } = toRemoteCoord(ev);
+        sendMouse("up", x, y, "left", 0);
+        img.style.cursor = "crosshair";
+      });
+
+      // ---- 鼠标离开图片时也松开，防止卡住 ----
+      img.addEventListener("mouseleave", (ev) => {
+        if (dragging) {
+          dragging = false;
+          sendMouse("up", lastCoord.x, lastCoord.y, "left", 0);
+          img.style.cursor = "crosshair";
+        }
+      });
+
+      // ---- 右键：直接 click ----
+      img.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        const { x, y } = toRemoteCoord(ev);
+        sendMouse("click", x, y, "right", 0);
+      });
+
+      // ---- 键盘 ----
+      document.addEventListener("keydown", (ev) => {
+        if (!ws || ws.readyState !== 1) return;
+
+        if (ev.ctrlKey) {
+          ws.send(
+            JSON.stringify({ type: "key", key: ev.key, ctrl: true, text: "" }),
+          );
+          ev.preventDefault();
+          return;
+        }
+
+        const text = ev.key.length === 1 ? ev.key : "";
+        ws.send(JSON.stringify({ type: "key", key: ev.key, text }));
+
+        if (["Backspace", "F5", "Tab", " "].includes(ev.key)) {
+          ev.preventDefault();
+        }
+      });
+
+      // ---- 重连提示 ----
+      setInterval(() => {
+        const gap = Date.now() - lastFrameTs;
+        const loading = document.getElementById("loading");
+        if (gap > 2000 && hasFirstFrame) {
+          loading.textContent = "重连中...";
+          loading.classList.remove("hidden");
+        } else if (gap < 1000 && hasFirstFrame) {
+          loading.classList.add("hidden");
+        }
+      }, 500);
+
+      connect();
+    </script>
+  </body>
+</html>

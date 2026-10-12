@@ -1,0 +1,15 @@
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+
+.idea
+data
+dist
+docs
+tests/
+
